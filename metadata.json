@@ -1,0 +1,7 @@
+{
+  "name": "ARYDALY | Sistema Administrativo y Punto de Venta",
+  "description": "Sistema administrativo integral para ARYDALY: control financiero de ingresos, egresos, capital neto diario, punto de venta, inventario y rendición de ganancias bimestral.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
