@@ -34,6 +34,8 @@ export const INITIAL_SETTINGS: BusinessSettings = {
   rendicionPeriod: 'bimestral',
   initialCapital: 0,
   logoUrl: '',
+  blockSalesWithoutStock: true,
+  soundOnScan: true,
 };
 
 export const INITIAL_USERS: User[] = [

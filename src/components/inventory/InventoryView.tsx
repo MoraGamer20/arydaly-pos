@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { usePOS } from '../../context/POSContext';
+import { soundEffects } from '../../utils/sound';
+import { ModalRecepcionEscaner } from '../modals/ModalRecepcionEscaner';
 import {
   Boxes,
   Sliders,
@@ -11,7 +13,13 @@ import {
   DollarSign,
   Package,
   CheckCircle,
+  CheckCircle2,
   X,
+  Barcode,
+  PackageCheck,
+  Search,
+  Plus,
+  Minus,
 } from 'lucide-react';
 
 export const InventoryView: React.FC = () => {
@@ -39,15 +47,45 @@ export const InventoryView: React.FC = () => {
   const [adjustReason, setAdjustReason] = useState('Entrada de mercancía / Reabastecimiento');
   const [notes, setNotes] = useState('');
 
+  // Scanner & Reception Modal state
+  const [isRecepcionModalOpen, setIsRecepcionModalOpen] = useState(false);
+  const [quickScanQuery, setQuickScanQuery] = useState('');
+  const [scannedProduct, setScannedProduct] = useState<any>(null);
+  const [scanStatus, setScanStatus] = useState<'idle' | 'found' | 'not_found'>('idle');
+
   const currentProduct = products.find((p) => p.id === selectedProductId);
 
-  const handleOpenAdjust = (prodId?: string) => {
+  const handleOpenAdjust = (prodId?: string, type: 'add' | 'subtract' | 'set' = 'add', reason = 'Entrada de mercancía / Reabastecimiento') => {
     if (prodId) setSelectedProductId(prodId);
     setAdjustAmount(1);
-    setAdjustType('add');
-    setAdjustReason('Entrada de mercancía / Reabastecimiento');
+    setAdjustType(type);
+    setAdjustReason(reason);
     setNotes('');
     setIsAdjustModalOpen(true);
+  };
+
+  const handleQuickScan = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = quickScanQuery.trim().toLowerCase();
+    if (!q) return;
+
+    const found = products.find(
+      (p) =>
+        p.isActive &&
+        (p.barcode.trim().toLowerCase() === q ||
+          p.sku.trim().toLowerCase() === q ||
+          p.name.trim().toLowerCase().includes(q))
+    );
+
+    if (found) {
+      if (settings.soundOnScan !== false) soundEffects.playScanSuccess();
+      setScannedProduct(found);
+      setScanStatus('found');
+    } else {
+      if (settings.soundOnScan !== false) soundEffects.playScanError();
+      setScannedProduct(null);
+      setScanStatus('not_found');
+    }
   };
 
   const handleApplyAdjustment = (e: React.FormEvent) => {
@@ -66,6 +104,11 @@ export const InventoryView: React.FC = () => {
     const fullReason = notes ? `${adjustReason} - ${notes}` : adjustReason;
     adjustInventory(currentProduct.id, newStock, fullReason);
     setIsAdjustModalOpen(false);
+
+    // Update scanned product if it matches
+    if (scannedProduct && scannedProduct.id === currentProduct.id) {
+      setScannedProduct({ ...scannedProduct, stock: newStock });
+    }
   };
 
   return (
@@ -82,13 +125,22 @@ export const InventoryView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => handleOpenAdjust()}
-          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-600/30 flex items-center gap-2 transition-all self-start sm:self-auto"
-        >
-          <Sliders className="w-4 h-4" />
-          <span>Ajustar Stock Manual</span>
-        </button>
+        <div className="flex items-center gap-2.5 flex-wrap self-start sm:self-auto">
+          <button
+            onClick={() => setIsRecepcionModalOpen(true)}
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md shadow-emerald-600/30 flex items-center gap-2 transition-all"
+          >
+            <PackageCheck className="w-4 h-4" />
+            <span>Entrada con Escáner</span>
+          </button>
+          <button
+            onClick={() => handleOpenAdjust()}
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-600/30 flex items-center gap-2 transition-all"
+          >
+            <Sliders className="w-4 h-4" />
+            <span>Ajustar Stock Manual</span>
+          </button>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -163,6 +215,127 @@ export const InventoryView: React.FC = () => {
             <TrendingUp className="w-6 h-6" />
           </div>
         </div>
+      </div>
+
+      {/* Quick Scanner Lookup & Stock Adjust Card */}
+      <div className="bg-white rounded-3xl p-5 md:p-6 border border-slate-200 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+              <Barcode className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-slate-800 text-sm">
+                Escanear Producto para Consulta y Ajuste Inmediato
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                Pasa cualquier código por el lector para ver existencias en tiempo real y aplicar entrada, salida o ajuste
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <form onSubmit={handleQuickScan} className="flex gap-2">
+          <div className="relative flex-1">
+            <Barcode className="w-4 h-4 text-blue-600 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={quickScanQuery}
+              onChange={(e) => setQuickScanQuery(e.target.value)}
+              placeholder="Escanear código de barras con lector USB o teclear código / SKU..."
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600"
+            />
+          </div>
+          <button
+            type="submit"
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-colors shrink-0"
+          >
+            <Search className="w-3.5 h-3.5" />
+            <span>Consultar</span>
+          </button>
+        </form>
+
+        {scanStatus === 'not_found' && (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-center gap-3 text-xs text-amber-900 animate-fade-in">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              No se encontró ningún producto con el código <strong>&quot;{quickScanQuery}&quot;</strong> en el inventario.
+            </span>
+          </div>
+        )}
+
+        {scannedProduct && (
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-scale-up">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-xl bg-white border border-slate-200 overflow-hidden shrink-0">
+                <img
+                  src={scannedProduct.imageUrl}
+                  alt={scannedProduct.name}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] uppercase font-bold text-blue-600">
+                    {scannedProduct.brand || 'General'}
+                  </span>
+                  <span className="font-mono text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded">
+                    {scannedProduct.barcode}
+                  </span>
+                </div>
+                <h4 className="text-sm font-bold text-slate-900">{scannedProduct.name}</h4>
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-slate-500 font-mono">SKU: {scannedProduct.sku}</span>
+                  <span className="text-slate-300">•</span>
+                  <span className="font-bold text-slate-700">
+                    Stock actual:{' '}
+                    <strong
+                      className={`font-mono text-xs ${
+                        scannedProduct.stock <= 0
+                          ? 'text-rose-600'
+                          : scannedProduct.stock <= scannedProduct.minStock
+                          ? 'text-amber-600'
+                          : 'text-emerald-700'
+                      }`}
+                    >
+                      {scannedProduct.stock} {scannedProduct.unit}s
+                    </strong>
+                  </span>
+                  <span className="text-slate-300">•</span>
+                  <span className="text-slate-500">Mínimo: {scannedProduct.minStock}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Actions for scanned product */}
+            <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
+              <button
+                type="button"
+                onClick={() => handleOpenAdjust(scannedProduct.id, 'add', 'Entrada rápida por escaneo')}
+                className="flex-1 md:flex-initial px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Entrada</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleOpenAdjust(scannedProduct.id, 'subtract', 'Salida / Merma')}
+                className="flex-1 md:flex-initial px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+              >
+                <Minus className="w-3.5 h-3.5" />
+                <span>Salida</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleOpenAdjust(scannedProduct.id, 'set', 'Ajuste directo por inventario')}
+                className="flex-1 md:flex-initial px-3 py-2 border border-slate-300 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Ajuste Físico</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Critical Stock Section */}
@@ -458,6 +631,12 @@ export const InventoryView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Barcode Reception Modal */}
+      <ModalRecepcionEscaner
+        isOpen={isRecepcionModalOpen}
+        onClose={() => setIsRecepcionModalOpen(false)}
+      />
     </div>
   );
 };

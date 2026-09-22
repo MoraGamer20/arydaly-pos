@@ -75,8 +75,11 @@ interface POSContextType {
   login: (email: string, role?: UserRole) => boolean;
   logout: () => void;
   switchUser: (user: User) => void;
-  addToCart: (product: Product, quantity?: number) => void;
-  updateCartQuantity: (productId: string, quantity: number) => void;
+  pendingNewProductBarcode: string | null;
+  setPendingNewProductBarcode: (barcode: string | null) => void;
+  openNewProductWithBarcode: (barcode: string) => void;
+  addToCart: (product: Product, quantity?: number) => { success: boolean; error?: string };
+  updateCartQuantity: (productId: string, quantity: number) => { success: boolean; error?: string };
   removeFromCart: (productId: string) => void;
   clearCart: () => void;
   setSelectedCustomer: (customer: Customer | null) => void;
@@ -92,6 +95,7 @@ interface POSContextType {
   saveProduct: (productData: Partial<Product> & { name: string; salePrice: number }) => Product;
   deleteProduct: (id: string) => void;
   adjustInventory: (productId: string, newStock: number, reason: string) => void;
+  receiveMerchandiseBatch: (items: { productId: string; quantity: number }[], reason?: string) => void;
   saveCustomer: (customerData: Partial<Customer> & { name: string }) => Customer;
   deleteCustomer: (id: string) => void;
   saveSupplier: (supplierData: Partial<Supplier> & { companyName: string }) => Supplier;
@@ -176,7 +180,13 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activeView, setActiveView] = useState<NavView>('dashboard');
   const [lastSale, setLastSale] = useState<Sale | null>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [pendingNewProductBarcode, setPendingNewProductBarcode] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+
+  const openNewProductWithBarcode = useCallback((barcode: string) => {
+    setPendingNewProductBarcode(barcode);
+    setActiveView('products');
+  }, []);
 
   // Initialize from LocalStorage
   useEffect(() => {
@@ -295,39 +305,76 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   // Cart operations
-  const addToCart = useCallback((product: Product, quantity = 1) => {
-    setCart((prev) => {
-      const existing = prev.find((item) => item.product.id === product.id);
-      if (existing) {
-        const newQty = existing.quantity + quantity;
-        return prev.map((item) =>
-          item.product.id === product.id
-            ? {
-                ...item,
-                quantity: newQty,
-                subtotal: Math.round(newQty * item.unitPrice * 100) / 100,
-              }
-            : item
-        );
-      } else {
-        return [
-          ...prev,
-          {
-            product,
-            quantity,
-            unitPrice: product.salePrice,
-            discount: 0,
-            subtotal: Math.round(quantity * product.salePrice * 100) / 100,
-          },
-        ];
-      }
-    });
-  }, []);
+  const addToCart = useCallback(
+    (product: Product, quantity = 1): { success: boolean; error?: string } => {
+      let result: { success: boolean; error?: string } = { success: true };
 
-  const updateCartQuantity = useCallback((productId: string, quantity: number) => {
-    if (quantity <= 0) {
-      setCart((prev) => prev.filter((item) => item.product.id !== productId));
-    } else {
+      setCart((prev) => {
+        const existing = prev.find((item) => item.product.id === product.id);
+        const currentQty = existing ? existing.quantity : 0;
+        const targetQty = currentQty + quantity;
+
+        if (settings.blockSalesWithoutStock !== false) {
+          if (product.stock <= 0) {
+            result = {
+              success: false,
+              error: `"${product.name}" está agotado (0 existencias en almacén).`,
+            };
+            return prev;
+          }
+          if (targetQty > product.stock) {
+            result = {
+              success: false,
+              error: `Existencias insuficientes para "${product.name}". Disponible: ${product.stock}, en carrito: ${currentQty}.`,
+            };
+            return prev;
+          }
+        }
+
+        if (existing) {
+          return prev.map((item) =>
+            item.product.id === product.id
+              ? {
+                  ...item,
+                  quantity: targetQty,
+                  subtotal: Math.round(targetQty * item.unitPrice * 100) / 100,
+                }
+              : item
+          );
+        } else {
+          return [
+            ...prev,
+            {
+              product,
+              quantity,
+              unitPrice: product.salePrice,
+              discount: 0,
+              subtotal: Math.round(quantity * product.salePrice * 100) / 100,
+            },
+          ];
+        }
+      });
+
+      return result;
+    },
+    [settings.blockSalesWithoutStock]
+  );
+
+  const updateCartQuantity = useCallback(
+    (productId: string, quantity: number): { success: boolean; error?: string } => {
+      if (quantity <= 0) {
+        setCart((prev) => prev.filter((item) => item.product.id !== productId));
+        return { success: true };
+      }
+
+      const prod = products.find((p) => p.id === productId);
+      if (prod && settings.blockSalesWithoutStock !== false && quantity > prod.stock) {
+        return {
+          success: false,
+          error: `Existencias insuficientes para "${prod.name}". Máximo disponible: ${prod.stock}.`,
+        };
+      }
+
       setCart((prev) =>
         prev.map((item) =>
           item.product.id === productId
@@ -339,8 +386,10 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             : item
         )
       );
-    }
-  }, []);
+      return { success: true };
+    },
+    [products, settings.blockSalesWithoutStock]
+  );
 
   const removeFromCart = useCallback((productId: string) => {
     setCart((prev) => prev.filter((item) => item.product.id !== productId));
@@ -848,6 +897,45 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setInventoryMovements((prev) => [movement, ...prev]);
     },
     [products, currentUser]
+  );
+
+  const receiveMerchandiseBatch = useCallback(
+    (items: { productId: string; quantity: number }[], reason = 'Entrada de mercancía con escáner') => {
+      if (!items.length) return;
+      const now = new Date().toISOString();
+      const movements: InventoryMovement[] = [];
+
+      setProducts((prev) =>
+        prev.map((p) => {
+          const item = items.find((i) => i.productId === p.id);
+          if (item && item.quantity > 0) {
+            const newStock = p.stock + item.quantity;
+            movements.push({
+              id: `im-recv-${Date.now()}-${p.id}`,
+              productId: p.id,
+              productName: p.name,
+              movementType: 'adjustment_in',
+              quantity: item.quantity,
+              previousStock: p.stock,
+              newStock,
+              reason,
+              userId: currentUser?.id || 'u-admin',
+              userName: currentUser?.fullName || 'Administrador',
+              createdAt: now,
+            });
+            return {
+              ...p,
+              stock: newStock,
+              updatedAt: now,
+            };
+          }
+          return p;
+        })
+      );
+
+      setInventoryMovements((prev) => [...movements, ...prev]);
+    },
+    [currentUser]
   );
 
   // Customer CRUD
@@ -1701,6 +1789,9 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         login,
         logout,
         switchUser,
+        pendingNewProductBarcode,
+        setPendingNewProductBarcode,
+        openNewProductWithBarcode,
         addToCart,
         updateCartQuantity,
         removeFromCart,
@@ -1713,6 +1804,7 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         saveProduct,
         deleteProduct,
         adjustInventory,
+        receiveMerchandiseBatch,
         saveCustomer,
         deleteCustomer,
         saveSupplier,

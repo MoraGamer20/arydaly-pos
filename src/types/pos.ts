@@ -201,6 +201,8 @@ export interface BusinessSettings {
   rendicionPeriod: 'bimestral' | 'mensual';
   initialCapital: number;
   logoUrl?: string;
+  blockSalesWithoutStock?: boolean;
+  soundOnScan?: boolean;
 }
 
 export type NavView =
