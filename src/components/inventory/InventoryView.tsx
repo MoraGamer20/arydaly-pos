@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { usePOS } from '../../context/POSContext';
 import { soundEffects } from '../../utils/sound';
 import { ModalRecepcionEscaner } from '../modals/ModalRecepcionEscaner';
+import { ProductImage } from '../common/ProductImage';
 import {
   Boxes,
   Sliders,
@@ -268,7 +269,7 @@ export const InventoryView: React.FC = () => {
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-scale-up">
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 rounded-xl bg-white border border-slate-200 overflow-hidden shrink-0">
-                <img
+                <ProductImage
                   src={scannedProduct.imageUrl}
                   alt={scannedProduct.name}
                   className="w-full h-full object-cover"

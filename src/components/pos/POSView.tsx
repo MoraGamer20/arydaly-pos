@@ -3,6 +3,7 @@ import { usePOS } from '../../context/POSContext';
 import { Product } from '../../types/pos';
 import { CheckoutModal } from './CheckoutModal';
 import { ReceiptModal } from './ReceiptModal';
+import { ProductImage } from '../common/ProductImage';
 import {
   Search,
   Barcode,
@@ -263,11 +264,10 @@ export const POSView: React.FC = () => {
                   >
                     {/* Image thumbnail & stock badge */}
                     <div className="relative h-28 w-full bg-slate-100 overflow-hidden">
-                      <img
+                      <ProductImage
                         src={product.imageUrl}
                         alt={product.name}
                         className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                        loading="lazy"
                       />
 
                       {/* Stock badge */}

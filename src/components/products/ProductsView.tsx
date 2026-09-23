@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePOS } from '../../context/POSContext';
 import { Product } from '../../types/pos';
+import { QuickProductScannerModal } from './QuickProductScannerModal';
+import { ProductImage } from '../common/ProductImage';
 import {
   Package,
   Plus,
@@ -13,6 +15,7 @@ import {
   CheckCircle2,
   X,
   Sparkles,
+  Zap,
 } from 'lucide-react';
 
 export const ProductsView: React.FC = () => {
@@ -22,6 +25,8 @@ export const ProductsView: React.FC = () => {
     settings,
     saveProduct,
     deleteProduct,
+    pendingNewProductBarcode,
+    setPendingNewProductBarcode,
   } = usePOS();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -31,6 +36,10 @@ export const ProductsView: React.FC = () => {
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+
+  // Quick scanner modal state
+  const [isQuickScannerOpen, setIsQuickScannerOpen] = useState(false);
+  const [scannerInitialBarcode, setScannerInitialBarcode] = useState<string | null>(null);
 
   // Form states
   const [formData, setFormData] = useState({
@@ -48,6 +57,15 @@ export const ProductsView: React.FC = () => {
     description: '',
   });
 
+  // If another view (POS, inventory) triggered openNewProductWithBarcode
+  useEffect(() => {
+    if (pendingNewProductBarcode) {
+      setScannerInitialBarcode(pendingNewProductBarcode);
+      setIsQuickScannerOpen(true);
+      setPendingNewProductBarcode(null);
+    }
+  }, [pendingNewProductBarcode, setPendingNewProductBarcode]);
+
   const openNewModal = () => {
     setEditingProduct(null);
     setFormData({
@@ -61,7 +79,7 @@ export const ProductsView: React.FC = () => {
       stock: 10,
       minStock: 5,
       unit: 'pieza',
-      imageUrl: 'https://images.unsplash.com/photo-1544681280-d25a782adc9b?w=400&auto=format&fit=crop&q=80',
+      imageUrl: '',
       description: '',
     });
     setIsModalOpen(true);
@@ -148,13 +166,28 @@ export const ProductsView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={openNewModal}
-          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-600/30 flex items-center gap-2 transition-all shrink-0 self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Nuevo Producto</span>
-        </button>
+        {/* Action Buttons: Alta rápida con escáner + Nuevo Producto */}
+        <div className="flex items-center gap-2.5 shrink-0 self-start sm:self-auto flex-wrap">
+          <button
+            onClick={() => {
+              setScannerInitialBarcode(null);
+              setIsQuickScannerOpen(true);
+            }}
+            className="px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-600/30 flex items-center gap-2 transition-all"
+            title="Captura masiva con escáner USB o código de barras (autocompletado)"
+          >
+            <Zap className="w-4 h-4 text-amber-300" />
+            <span>⚡ Alta rápida con escáner</span>
+          </button>
+
+          <button
+            onClick={openNewModal}
+            className="px-4 py-2.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-bold rounded-xl shadow-xs flex items-center gap-2 transition-all"
+          >
+            <Plus className="w-4 h-4 text-slate-600" />
+            <span>+ Nuevo Producto</span>
+          </button>
+        </div>
       </div>
 
       {/* Filters Bar */}
@@ -217,8 +250,21 @@ export const ProductsView: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-slate-400">
-                    No se encontraron productos con los filtros seleccionados.
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                    <div className="max-w-xs mx-auto space-y-3">
+                      <Package className="w-10 h-10 text-slate-300 mx-auto" />
+                      <p className="font-semibold text-slate-600">No se encontraron productos</p>
+                      <p className="text-[11px] text-slate-400">
+                        {searchQuery ? `No hay coincidencias para "${searchQuery}".` : 'Comienza registrando tu catálogo.'}
+                      </p>
+                      <button
+                        onClick={() => setIsQuickScannerOpen(true)}
+                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors inline-flex items-center gap-1.5"
+                      >
+                        <Zap className="w-3.5 h-3.5 text-amber-300" />
+                        <span>⚡ Alta rápida con escáner</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -239,7 +285,7 @@ export const ProductsView: React.FC = () => {
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-lg overflow-hidden bg-slate-100 shrink-0 border border-slate-200">
-                            <img
+                            <ProductImage
                               src={product.imageUrl}
                               alt={product.name}
                               className="w-full h-full object-cover"
@@ -258,28 +304,38 @@ export const ProductsView: React.FC = () => {
                       </td>
 
                       <td className="py-3 px-4">
-                        <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-100">
-                          {category?.name || 'General'}
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md font-semibold text-[11px]">
+                          {category?.name || 'Sin categoría'}
                         </span>
                       </td>
 
-                      <td className="py-3 px-4 text-right font-mono text-slate-500">
+                      <td className="py-3 px-4 text-right font-mono font-medium text-slate-600">
                         {settings.currencySymbol}
                         {product.costPrice.toFixed(2)}
                       </td>
 
-                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 text-sm">
+                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
                         {settings.currencySymbol}
                         {product.salePrice.toFixed(2)}
                       </td>
 
-                      <td className="py-3 px-4 text-right font-mono font-bold text-emerald-600">
-                        {marginPercent}%
+                      <td className="py-3 px-4 text-right font-mono">
+                        <span
+                          className={`font-bold px-1.5 py-0.5 rounded text-[11px] ${
+                            marginPercent >= 30
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : marginPercent > 10
+                              ? 'bg-blue-50 text-blue-700'
+                              : 'bg-amber-50 text-amber-700'
+                          }`}
+                        >
+                          {marginPercent}%
+                        </span>
                       </td>
 
                       <td className="py-3 px-4 text-center">
                         <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-mono font-bold ${
+                          className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${
                             isOut
                               ? 'bg-rose-100 text-rose-800'
                               : isLow
@@ -287,13 +343,12 @@ export const ProductsView: React.FC = () => {
                               : 'bg-emerald-100 text-emerald-800'
                           }`}
                         >
-                          {isOut && <AlertTriangle className="w-3 h-3" />}
                           {product.stock} {product.unit}s
                         </span>
                       </td>
 
                       <td className="py-3 px-4 text-center">
-                        <div className="flex items-center justify-center gap-2">
+                        <div className="flex items-center justify-center gap-1">
                           <button
                             onClick={() => openEditModal(product)}
                             className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -319,7 +374,15 @@ export const ProductsView: React.FC = () => {
         </div>
       </div>
 
-      {/* New / Edit Product Modal */}
+      {/* QUICK PRODUCT SCANNER MODAL (Alta rápida continua con escáner) */}
+      <QuickProductScannerModal
+        isOpen={isQuickScannerOpen}
+        onClose={() => setIsQuickScannerOpen(false)}
+        initialBarcode={scannerInitialBarcode}
+        onEditExisting={(prod) => openEditModal(prod)}
+      />
+
+      {/* Traditional New / Edit Product Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -492,14 +555,14 @@ export const ProductsView: React.FC = () => {
                   </select>
                 </div>
 
-                {/* Image URL */}
+                {/* Image URL preview */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">URL de Imagen</label>
                   <input
                     type="url"
                     value={formData.imageUrl}
                     onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
-                    placeholder="https://..."
+                    placeholder="https://... (o se obtiene con escáner)"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600"
                   />
                 </div>
